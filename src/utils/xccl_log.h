@@ -9,6 +9,7 @@
 #include "config.h"
 #include "xccl_global_opts.h"
 
+extern const char *xccl_coll_names[];
 extern xccl_config_t xccl_lib_global_config;
 #define xccl_log_component(_level, _fmt, ...) \
     do { \

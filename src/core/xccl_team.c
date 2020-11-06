@@ -10,6 +10,7 @@
 #include <ucs/memory/memory_type.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <inttypes.h>
 
 static int compare_teams_by_priority(const void* t1, const void* t2)
 {
@@ -18,6 +19,33 @@ static int compare_teams_by_priority(const void* t1, const void* t2)
     return (*team2)->ctx->lib->priority - (*team1)->ctx->lib->priority;
 }
 
+static void xccl_team_print_collective_map(xccl_team_t *team)
+{
+    const int max_out_len = 255;
+    char output_buf[max_out_len];
+    int cur_out_len, c, m;
+
+    cur_out_len = 0;
+    snprintf(output_buf, max_out_len, "%-16s ", "collective");
+    for (m = 0; m < UCS_MEMORY_TYPE_LAST; m++) {
+        cur_out_len = strlen(output_buf);
+        snprintf(output_buf + cur_out_len, max_out_len - cur_out_len, "%-16s",
+                 ucs_memory_type_names[m]);
+    }
+    printf("%s\n", output_buf);
+    for (c = 0; c < XCCL_COLL_LAST; c++) {
+        output_buf[0] = '\0';
+        snprintf(output_buf, max_out_len, "%-16s ", xccl_coll_names[c]);
+        for (m = 0; m < UCS_MEMORY_TYPE_LAST; m++) {
+            cur_out_len = strlen(output_buf);
+            snprintf(output_buf + cur_out_len, max_out_len - cur_out_len, "%-16s",
+                     (team->coll_team_id[c][m] < 0)? "unsupported":
+                      team->tl_teams[team->coll_team_id[c][m]]->ctx->lib->name);
+        }
+        printf("%s\n", output_buf);
+    }
+    fflush(stdout);
+}
 
 xccl_status_t xccl_team_create_post(xccl_context_h context,
                                     xccl_team_params_t *params,
@@ -98,8 +126,13 @@ xccl_status_t xccl_team_create_test(xccl_team_t *team)
           compare_teams_by_priority);
     for (m = 0; m < UCS_MEMORY_TYPE_LAST; m++) {
         for (c = 0; c < XCCL_COLL_LAST; c++) {
+            team->coll_team_id[c][m] = -1;
             for (i=0; i<team->n_teams; i++) {
-                team->coll_team_id[c][m] = -1;
+                if (team->params.oob.rank == 0) {
+                    fprintf(stderr, "checking mem %d coll %d team %s suptypes %" PRIu64 " supcolls %" PRIu64 "\n",
+                            m, c, team->tl_teams[i]->ctx->lib->name, team->tl_teams[i]->ctx->lib->mem_types,
+                            team->tl_teams[i]->ctx->lib->params.coll_types);
+                }
                 if ((team->tl_teams[i]->ctx->lib->params.coll_types & UCS_BIT(c)) &&
                     (team->tl_teams[i]->ctx->lib->mem_types & UCS_BIT(m))) {
                     team->coll_team_id[c][m] = i;
@@ -107,6 +140,9 @@ xccl_status_t xccl_team_create_test(xccl_team_t *team)
                 }
             }
         }
+    }
+    if (team->params.oob.rank == 0) {
+        xccl_team_print_collective_map(team);
     }
     team->status = XCCL_OK;
     /* TODO: check if some teams are never used after selection and clean them up */

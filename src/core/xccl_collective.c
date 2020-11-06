@@ -13,6 +13,22 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+
+const char *xccl_coll_names[] = {
+    [XCCL_BARRIER]    = "barrier",
+    [XCCL_BCAST]      = "bcast" ,
+    [XCCL_ALLREDUCE]  = "allreduce",
+    [XCCL_REDUCE]     = "reduce",
+    [XCCL_ALLTOALL]   = "alltoall",
+    [XCCL_ALLTOALLV]  = "alltoallv",
+    [XCCL_ALLGATHER]  = "allgather" ,
+    [XCCL_FANIN]      = "fanin",
+    [XCCL_FANOUT]     = "fanout",
+    [XCCL_FANOUT_GET] = "fanout-get",
+    [XCCL_COLL_LAST]  = "unknown"
+
+};
+
 xccl_status_t xccl_collective_init(xccl_coll_op_args_t *coll_args,
                                    xccl_coll_req_h *request, xccl_team_h team)
 {
@@ -24,10 +40,14 @@ xccl_status_t xccl_collective_init(xccl_coll_op_args_t *coll_args,
     xccl_status_t     status;
     ucs_memory_type_t mtype;
 
-    status = xccl_mem_component_type(coll_args->buffer_info.src_buffer, &mtype);
-    if (status != XCCL_OK) {
-        xccl_error("Memtype detection error");
-        return XCCL_ERR_INVALID_PARAM;
+    if (coll_args->coll_type != XCCL_BARRIER) {
+        status = xccl_mem_component_type(coll_args->buffer_info.src_buffer, &mtype);
+        if (status != XCCL_OK) {
+            xccl_error("Memtype detection error");
+            return XCCL_ERR_INVALID_PARAM;
+        }
+    } else {
+        mtype = 0;
     }
 
     tl_team_id = team->coll_team_id[coll_args->coll_type][mtype];
