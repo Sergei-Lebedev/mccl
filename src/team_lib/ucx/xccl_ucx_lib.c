@@ -99,6 +99,12 @@ static ucs_config_field_t xccl_tl_ucx_context_config_table[] = {
      UCS_CONFIG_TYPE_UINT
     },
 
+    {"ALLTOALL_PAIRWISE_SLICES", "1",
+     "Number of parts each msg divided into in the pairwise exchange alltoall algorithm",
+     ucs_offsetof(xccl_tl_ucx_context_config_t, alltoall_pairwise_num_slices),
+     UCS_CONFIG_TYPE_UINT
+    },
+
     {"PPN", "32",
      "Estimated number of processes per node",
      ucs_offsetof(xccl_tl_ucx_context_config_t, ppn),

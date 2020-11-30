@@ -29,6 +29,7 @@ typedef struct xccl_tl_ucx_context_config {
     unsigned                 alltoall_pairwise_chunk;
     int                      alltoall_pairwise_reverse;
     unsigned                 alltoall_pairwise_barrier;
+    unsigned                 alltoall_pairwise_num_slices;
     int                      ppn;
 } xccl_tl_ucx_context_config_t;
 
@@ -138,8 +139,12 @@ typedef struct xccl_ucx_collreq {
             int                phase;
             int                ready_to_send;
             int                n_sreqs;
+            uint8_t            n_sslices;
+            ptrdiff_t          sslice_offset;
             int                ready_to_recv;
             int                n_rreqs;
+            uint8_t            n_rslices;
+            ptrdiff_t          rslice_offset;
         } alltoall_pairwise;
         struct {
             xccl_ucx_request_t *reqs[2];

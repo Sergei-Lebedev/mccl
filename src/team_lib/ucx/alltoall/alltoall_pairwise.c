@@ -32,6 +32,85 @@ static inline int get_send_peer(int group_rank, int group_size,
     }
 }
 
+static inline xccl_status_t send_next_slice(xccl_ucx_collreq_t *req,
+                                            int group_size,
+                                            int group_rank,
+                                            xccl_ucx_request_t **request)
+{
+    int num_slices        = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_num_slices;
+    int reverse           = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_reverse;
+    xccl_ucx_team_t *team = ucs_derived_of(req->team, xccl_ucx_team_t);
+
+    ptrdiff_t sbuf = (ptrdiff_t)req->args.buffer_info.src_buffer;
+    int peer, step, slice, step_size, slice_size;
+    xccl_status_t st;
+
+    step_size = req->args.buffer_info.len;
+    if (num_slices > step_size) {
+        num_slices = 1;
+    }
+    step = req->alltoall_pairwise.n_sreqs;
+    slice = req->alltoall_pairwise.n_sslices;
+    peer = get_send_peer(group_rank, group_size, step, reverse);
+    slice_size = step_size / num_slices + ((slice < step_size % num_slices)? 1 : 0);
+    sbuf = sbuf + peer * step_size + req->alltoall_pairwise.sslice_offset;
+    // xccl_ucx_warn("send step %d slice %d peer %d", step, slice, peer);
+    st = xccl_ucx_send_nb((void*)sbuf, slice_size, peer, team, req->tag, request);
+    if (st != XCCL_OK) {
+        xccl_ucx_error("failed to send next slice peer %d, slice %d",
+                        peer, slice);
+        return st;
+    }
+    req->alltoall_pairwise.n_sslices =
+        (req->alltoall_pairwise.n_sslices + 1) % num_slices;
+    req->alltoall_pairwise.sslice_offset += slice_size;
+    if (req->alltoall_pairwise.n_sslices == 0) {
+        req->alltoall_pairwise.n_sreqs += 1;
+        req->alltoall_pairwise.sslice_offset = 0;
+    }
+
+    return XCCL_OK;
+}
+
+static inline xccl_status_t recv_next_slice(xccl_ucx_collreq_t *req,
+                                            int group_size,
+                                            int group_rank,
+                                            xccl_ucx_request_t **request)
+{
+    int num_slices        = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_num_slices;
+    int reverse           = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_reverse;
+    xccl_ucx_team_t *team = ucs_derived_of(req->team, xccl_ucx_team_t);
+    ptrdiff_t rbuf = (ptrdiff_t)req->args.buffer_info.dst_buffer;
+    int peer, step, slice, step_size, slice_size;
+    xccl_status_t st;
+
+    step_size = req->args.buffer_info.len;
+    if (num_slices > step_size) {
+        num_slices = 1;
+    }
+    step = req->alltoall_pairwise.n_rreqs;
+    slice = req->alltoall_pairwise.n_rslices;
+    peer = get_recv_peer(group_rank, group_size, step, reverse);
+    slice_size = step_size / num_slices + ((slice < step_size % num_slices)? 1 : 0);
+    rbuf = rbuf + peer * step_size + req->alltoall_pairwise.rslice_offset;
+    // xccl_ucx_warn("recv step %d slice %d peer %d", step, slice, peer);
+    st = xccl_ucx_recv_nb((void*)rbuf, slice_size, peer, team, req->tag, request);
+    if (st != XCCL_OK) {
+        xccl_ucx_error("failed to recv next slice peer %d, slice %d",
+                        peer, slice);
+        return st;
+    }
+    req->alltoall_pairwise.n_rslices =
+        (req->alltoall_pairwise.n_rslices + 1) % num_slices;
+    req->alltoall_pairwise.rslice_offset += slice_size;
+    if (req->alltoall_pairwise.n_rslices == 0) {
+        req->alltoall_pairwise.n_rreqs += 1;
+        req->alltoall_pairwise.rslice_offset = 0;
+    }
+
+    return XCCL_OK;
+}
+
 xccl_status_t xccl_ucx_alltoall_pairwise_progress(xccl_ucx_collreq_t *req)
 {
     ptrdiff_t            sbuf = (ptrdiff_t)req->args.buffer_info.src_buffer;
@@ -55,11 +134,12 @@ xccl_status_t xccl_ucx_alltoall_pairwise_progress(xccl_ucx_collreq_t *req)
         if (req->alltoall_pairwise.n_rreqs < group_size - 1) {
             status = xccl_ucx_req_test(team, reqs, total_reqs, &released_slot, 1, 1);
             if (XCCL_OK == status) {
-                peer = get_recv_peer(group_rank, group_size,
-                                     req->alltoall_pairwise.n_rreqs, reverse);
-                xccl_ucx_recv_nb((void*)(rbuf + peer * data_size),
-                                 data_size, peer, team, req->tag, &reqs[released_slot]);
-                req->alltoall_pairwise.n_rreqs++;
+                recv_next_slice(req, group_size, group_rank, &reqs[released_slot]);
+                // peer = get_recv_peer(group_rank, group_size,
+                //                      req->alltoall_pairwise.n_rreqs, reverse);
+                // xccl_ucx_recv_nb((void*)(rbuf + peer * data_size),
+                //                  data_size, peer, team, req->tag, &reqs[released_slot]);
+                // req->alltoall_pairwise.n_rreqs++;
                 n_polls = 0;
             }
         }
@@ -67,12 +147,14 @@ xccl_status_t xccl_ucx_alltoall_pairwise_progress(xccl_ucx_collreq_t *req)
             status = xccl_ucx_req_test(team, reqs+total_reqs, total_reqs,
                                        &released_slot, 1, 1);
             if (XCCL_OK == status) {
-                peer = get_send_peer(group_rank, group_size,
-                                     req->alltoall_pairwise.n_sreqs, reverse);
-                xccl_ucx_send_nb((void*)(sbuf + peer * data_size),
-                                 data_size, peer, team, req->tag,
-                                 &reqs[released_slot+total_reqs]);
-                req->alltoall_pairwise.n_sreqs++;
+                send_next_slice(req, group_size, group_rank,
+                                &reqs[released_slot+total_reqs]);
+                // peer = get_send_peer(group_rank, group_size,
+                //                      req->alltoall_pairwise.n_sreqs, reverse);
+                // xccl_ucx_send_nb((void*)(sbuf + peer * data_size),
+                //                  data_size, peer, team, req->tag,
+                //                  &reqs[released_slot+total_reqs]);
+                // req->alltoall_pairwise.n_sreqs++;
                 n_polls = 0;
             }
         }
@@ -201,6 +283,7 @@ xccl_status_t xccl_ucx_alltoall_pairwise_start(xccl_ucx_collreq_t *req)
     size_t data_size      = req->args.buffer_info.len;
     int    group_rank     = req->team->params.oob.rank;
     int    group_size     = req->team->params.oob.size;
+    int    slices         = 2;
     int    chunk          = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_chunk;
     int    reverse        = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_reverse;
     int    barrier_after  = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_barrier;
@@ -212,7 +295,7 @@ xccl_status_t xccl_ucx_alltoall_pairwise_start(xccl_ucx_collreq_t *req)
     xccl_ucx_request_t **reqs;
     xccl_status_t st;
     int step, peer;
-    req->alltoall_pairwise.reqs = calloc(total_reqs*2,
+    req->alltoall_pairwise.reqs = calloc(slices*total_reqs*2,
                                          sizeof(*req->alltoall_pairwise.reqs));
     if (!req->alltoall_pairwise.reqs) {
         return XCCL_ERR_NO_MEMORY;
@@ -239,22 +322,28 @@ xccl_status_t xccl_ucx_alltoall_pairwise_start(xccl_ucx_collreq_t *req)
         req->alltoall_pairwise.phase         = PHASE_SENDRECV;
         xccl_ucx_trace("alltoall with barrier will be used");
     }
+    req->alltoall_pairwise.n_rreqs = 0;
+    req->alltoall_pairwise.n_rslices = 0;
+    req->alltoall_pairwise.rslice_offset = 0;
+    req->alltoall_pairwise.n_sreqs = 0;
+    req->alltoall_pairwise.n_sslices = 0;
+    req->alltoall_pairwise.sslice_offset = 0;
     xccl_ucx_send_recv((void*)(sbuf+data_size*group_rank), data_size,
                        group_rank, req->tag, (void*)(rbuf+data_size*group_rank),
                        data_size, group_rank, req->tag,
                        (xccl_ucx_team_t *)req->team);
     for (step = 0; step < total_reqs; step++) {
-        peer = get_recv_peer(group_rank, group_size, step, reverse);
-        xccl_ucx_recv_nb((void*)(rbuf + peer * data_size),
-                         data_size, peer, team, req->tag, &reqs[step]);
+        recv_next_slice(req, group_size, group_rank, &reqs[step]);
+        // peer = get_recv_peer(group_rank, group_size, step, reverse);
+        // xccl_ucx_recv_nb((void*)(rbuf + peer * data_size),
+        //                  data_size, peer, team, req->tag, &reqs[step]);
     }
     for (step = 0; step < total_reqs; step++) {
-        peer = get_send_peer(group_rank, group_size, step, reverse);
-        xccl_ucx_send_nb((void*)(sbuf + peer * data_size),
-                         data_size, peer, team, req->tag, &reqs[step+total_reqs]);
+        send_next_slice(req, group_size, group_rank, &reqs[step+total_reqs]);
+        // peer = get_send_peer(group_rank, group_size, step, reverse);
+        // xccl_ucx_send_nb((void*)(sbuf + peer * data_size),
+        //                  data_size, peer, team, req->tag, &reqs[step+total_reqs]);
     }
 
-    req->alltoall_pairwise.n_rreqs       = total_reqs;
-    req->alltoall_pairwise.n_sreqs       = total_reqs;
     return req->progress(req);
 }
