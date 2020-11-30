@@ -129,9 +129,9 @@ xccl_status_t xccl_ucx_alltoall_pairwise_progress(xccl_ucx_collreq_t *req)
     xccl_status_t status;
     n_polls = 0;
     while (n_polls++ < max_polls &&
-           (req->alltoall_pairwise.n_rreqs != group_size - 1 ||
-            req->alltoall_pairwise.n_sreqs != group_size - 1)) {
-        if (req->alltoall_pairwise.n_rreqs < group_size - 1) {
+           (req->alltoall_pairwise.n_rreqs != group_size ||
+            req->alltoall_pairwise.n_sreqs != group_size)) {
+        if (req->alltoall_pairwise.n_rreqs < group_size) {
             status = xccl_ucx_req_test(team, reqs, total_reqs, &released_slot, 1, 1);
             if (XCCL_OK == status) {
                 recv_next_slice(req, group_size, group_rank, &reqs[released_slot]);
@@ -143,7 +143,7 @@ xccl_status_t xccl_ucx_alltoall_pairwise_progress(xccl_ucx_collreq_t *req)
                 n_polls = 0;
             }
         }
-        if (req->alltoall_pairwise.n_sreqs < group_size - 1) {
+        if (req->alltoall_pairwise.n_sreqs < group_size) {
             status = xccl_ucx_req_test(team, reqs+total_reqs, total_reqs,
                                        &released_slot, 1, 1);
             if (XCCL_OK == status) {
@@ -159,8 +159,8 @@ xccl_status_t xccl_ucx_alltoall_pairwise_progress(xccl_ucx_collreq_t *req)
             }
         }
     }
-    if (req->alltoall_pairwise.n_rreqs != group_size - 1 ||
-        req->alltoall_pairwise.n_sreqs != group_size - 1) {
+    if (req->alltoall_pairwise.n_rreqs != group_size ||
+        req->alltoall_pairwise.n_sreqs != group_size) {
         return XCCL_OK;
     }
 
@@ -328,10 +328,6 @@ xccl_status_t xccl_ucx_alltoall_pairwise_start(xccl_ucx_collreq_t *req)
     req->alltoall_pairwise.n_sreqs = 0;
     req->alltoall_pairwise.n_sslices = 0;
     req->alltoall_pairwise.sslice_offset = 0;
-    xccl_ucx_send_recv((void*)(sbuf+data_size*group_rank), data_size,
-                       group_rank, req->tag, (void*)(rbuf+data_size*group_rank),
-                       data_size, group_rank, req->tag,
-                       (xccl_ucx_team_t *)req->team);
     for (step = 0; step < total_reqs; step++) {
         recv_next_slice(req, group_size, group_rank, &reqs[step]);
         // peer = get_recv_peer(group_rank, group_size, step, reverse);
