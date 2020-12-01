@@ -44,15 +44,15 @@ xccl_status_t xccl_ucx_alltoall_pairwise_progress(xccl_ucx_collreq_t *req)
     int                 chunk = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_chunk;
     int               reverse = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_reverse;
     int             max_polls = TEAM_UCX_CTX(team)->num_to_probe;
-    int            total_reqs = (chunk > group_size - 1 || chunk <= 0) ?
-        group_size - 1 : chunk;
+    int            total_reqs = (chunk > group_size || chunk <= 0) ?
+        group_size : chunk;
     int step, peer, released_slot, n_polls;
     xccl_status_t status;
     n_polls = 0;
     while (n_polls++ < max_polls &&
-           (req->alltoall_pairwise.n_rreqs != group_size - 1 ||
-            req->alltoall_pairwise.n_sreqs != group_size - 1)) {
-        if (req->alltoall_pairwise.n_rreqs < group_size - 1) {
+           (req->alltoall_pairwise.n_rreqs != group_size ||
+            req->alltoall_pairwise.n_sreqs != group_size)) {
+        if (req->alltoall_pairwise.n_rreqs < group_size) {
             status = xccl_ucx_req_test(team, reqs, total_reqs, &released_slot, 1, 1);
             if (XCCL_OK == status) {
                 peer = get_recv_peer(group_rank, group_size,
@@ -63,7 +63,7 @@ xccl_status_t xccl_ucx_alltoall_pairwise_progress(xccl_ucx_collreq_t *req)
                 n_polls = 0;
             }
         }
-        if (req->alltoall_pairwise.n_sreqs < group_size - 1) {
+        if (req->alltoall_pairwise.n_sreqs < group_size) {
             status = xccl_ucx_req_test(team, reqs+total_reqs, total_reqs,
                                        &released_slot, 1, 1);
             if (XCCL_OK == status) {
@@ -77,8 +77,8 @@ xccl_status_t xccl_ucx_alltoall_pairwise_progress(xccl_ucx_collreq_t *req)
             }
         }
     }
-    if (req->alltoall_pairwise.n_rreqs != group_size - 1 ||
-        req->alltoall_pairwise.n_sreqs != group_size - 1) {
+    if (req->alltoall_pairwise.n_rreqs != group_size ||
+        req->alltoall_pairwise.n_sreqs != group_size) {
         return XCCL_OK;
     }
 
@@ -92,7 +92,7 @@ xccl_status_t xccl_ucx_alltoall_pairwise_progress(xccl_ucx_collreq_t *req)
 
 static inline int need_barrier(int n_reqs, int group_size, int barrier_after)
 {
-    if ((n_reqs != group_size -1 ) && (n_reqs % barrier_after == 0)) {
+    if ((n_reqs != group_size) && (n_reqs % barrier_after == 0)) {
         return 1;
     }
     return 0;
@@ -111,15 +111,15 @@ xccl_status_t xccl_ucx_alltoall_pairwise_barrier_progress(xccl_ucx_collreq_t *re
     int               reverse = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_reverse;
     int         barrier_after = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_barrier;
     int             max_polls = TEAM_UCX_CTX(team)->num_to_probe;
-    int            total_reqs = (chunk > group_size - 1 || chunk <= 0) ?
-        group_size - 1 : chunk;
+    int            total_reqs = (chunk > group_size || chunk <= 0) ?
+        group_size : chunk;
     int step, peer, released_slot, n_polls;
     xccl_status_t status;
     n_polls = 0;
 
     while (n_polls++ < max_polls &&
-           (req->alltoall_pairwise.n_rreqs != group_size - 1 ||
-            req->alltoall_pairwise.n_sreqs != group_size - 1)) {
+           (req->alltoall_pairwise.n_rreqs != group_size ||
+            req->alltoall_pairwise.n_sreqs != group_size)) {
         if (req->alltoall_pairwise.phase == PHASE_START_BARRIER) {
             status = xccl_team_lib_ucx.super.collective_post(
                 (xccl_tl_coll_req_t*)req->alltoall_pairwise.barrier_req);
@@ -144,7 +144,7 @@ xccl_status_t xccl_ucx_alltoall_pairwise_barrier_progress(xccl_ucx_collreq_t *re
                 return status;
             }
         }
-        if (req->alltoall_pairwise.n_rreqs < group_size - 1) {
+        if (req->alltoall_pairwise.n_rreqs < group_size) {
             status = xccl_ucx_req_test(team, reqs, total_reqs, &released_slot, 1, 1);
             if ((XCCL_OK == status) && (req->alltoall_pairwise.ready_to_recv == 1)) {
                 peer = get_recv_peer(group_rank, group_size,
@@ -159,7 +159,7 @@ xccl_status_t xccl_ucx_alltoall_pairwise_barrier_progress(xccl_ucx_collreq_t *re
                 n_polls = 0;
             }
         }
-        if (req->alltoall_pairwise.n_sreqs < group_size - 1) {
+        if (req->alltoall_pairwise.n_sreqs < group_size) {
             status = xccl_ucx_req_test(team, reqs+total_reqs, total_reqs,
                                        &released_slot, 1, 1);
             if ((XCCL_OK == status) && (req->alltoall_pairwise.ready_to_send == 1)) {
@@ -177,8 +177,8 @@ xccl_status_t xccl_ucx_alltoall_pairwise_barrier_progress(xccl_ucx_collreq_t *re
             }
         }
     }
-    if (req->alltoall_pairwise.n_rreqs != group_size - 1 ||
-        req->alltoall_pairwise.n_sreqs != group_size - 1) {
+    if (req->alltoall_pairwise.n_rreqs != group_size ||
+        req->alltoall_pairwise.n_sreqs != group_size) {
         return XCCL_OK;
     }
 
@@ -204,8 +204,8 @@ xccl_status_t xccl_ucx_alltoall_pairwise_start(xccl_ucx_collreq_t *req)
     int    chunk          = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_chunk;
     int    reverse        = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_reverse;
     int    barrier_after  = TEAM_UCX_CTX_REQ(req)->alltoall_pairwise_barrier;
-    int    total_reqs     = (chunk > group_size - 1 || chunk <= 0) ?
-        group_size - 1 : chunk;
+    int    total_reqs     = (chunk > group_size || chunk <= 0) ?
+        group_size : chunk;
     ptrdiff_t sbuf        = (ptrdiff_t)req->args.buffer_info.src_buffer;
     ptrdiff_t rbuf        = (ptrdiff_t)req->args.buffer_info.dst_buffer;
     xccl_ucx_team_t *team = ucs_derived_of(req->team, xccl_ucx_team_t);
@@ -239,10 +239,6 @@ xccl_status_t xccl_ucx_alltoall_pairwise_start(xccl_ucx_collreq_t *req)
         req->alltoall_pairwise.phase         = PHASE_SENDRECV;
         xccl_ucx_trace("alltoall with barrier will be used");
     }
-    xccl_ucx_send_recv((void*)(sbuf+data_size*group_rank), data_size,
-                       group_rank, req->tag, (void*)(rbuf+data_size*group_rank),
-                       data_size, group_rank, req->tag,
-                       (xccl_ucx_team_t *)req->team);
     for (step = 0; step < total_reqs; step++) {
         peer = get_recv_peer(group_rank, group_size, step, reverse);
         xccl_ucx_recv_nb((void*)(rbuf + peer * data_size),
