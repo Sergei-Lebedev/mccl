@@ -93,6 +93,19 @@ xccl_status_t xccl_ucx_create_context(xccl_team_lib_t *lib,
     } else {
         ctx->ucp_eps = NULL;
     }
+
+    ucp_mem_map_params_t mem_map_params;
+    void *cache_buf;
+    xccl_mem_component_alloc(&cache_buf,
+                             xccl_lib_global_config.mem_component_cache_size,
+                             UCS_MEMORY_TYPE_CUDA);
+    mem_map_params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                                UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+    mem_map_params.address = cache_buf;
+    mem_map_params.length  = xccl_lib_global_config.mem_component_cache_size;
+    ucp_mem_map(ctx->ucp_context, &mem_map_params, &ctx->cache_mem_handle);
+    xccl_mem_component_free(cache_buf, UCS_MEMORY_TYPE_CUDA);
+
     ctx->num_to_probe              = cfg->num_to_probe;
     ctx->barrier_kn_radix          = cfg->barrier_kn_radix;
     ctx->bcast_kn_radix            = cfg->bcast_kn_radix;
@@ -122,6 +135,7 @@ xccl_status_t xccl_ucx_destroy_context(xccl_tl_context_t *team_context)
         free(tmp);
         free(ctx->ucp_eps);
     }
+    ucp_mem_unmap(ctx->ucp_context, ctx->cache_mem_handle);
     ucp_worker_destroy(ctx->ucp_worker);
     ucp_cleanup(ctx->ucp_context);
     free(ctx);

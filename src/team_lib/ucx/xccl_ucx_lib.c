@@ -199,6 +199,7 @@ xccl_ucx_alltoall_init(xccl_coll_op_args_t *coll_args,
 
     team_ucx_ctx = ucs_derived_of(team->ctx, xccl_team_lib_ucx_context_t);
     xccl_ucx_coll_base_init(coll_args, team, &req);
+    xccl_ucx_info("a2a msg size: %d", coll_args->buffer_info.len);
     if (!coll_args->alg.set_by_user) {
         //TODO alg selection for alltoall should happen here
         if (coll_args->buffer_info.src_buffer == coll_args->buffer_info.dst_buffer) {

@@ -13,6 +13,7 @@ typedef struct xccl_team_lib_ucx_context {
     int               ucx_inited;
     ucp_context_h     ucp_context;
     ucp_worker_h      ucp_worker;
+    ucp_mem_h         cache_mem_handle;
     size_t            ucp_addrlen;
     int               next_cid;
     unsigned          num_to_probe;
