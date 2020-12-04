@@ -19,6 +19,7 @@ allreduce = allreduce/allreduce.h \
 
 alltoall = alltoall/alltoall.h \
 	alltoall/alltoall_pairwise.c \
+    alltoall/alltoall_pairwise_gpu.c \
 	alltoall/alltoall_linear_shift.c
 
 alltoallv = alltoallv/alltoallv.h \
@@ -66,8 +67,8 @@ component_install = xccl_team_lib_ucx.la
 
 xccl_team_lib_ucx_la_LIBADD = $(XCCL_TOP_BUILDDIR)/src/libxccl.la
 xccl_team_lib_ucx_la_SOURCES =$(sources)
-xccl_team_lib_ucx_la_CPPFLAGS = $(AM_CPPFLAGS) $(UCX_CPPFLAGS)
-xccl_team_lib_ucx_la_LDFLAGS = -module -avoid-version $(UCX_LDFLAGS) $(UCX_LIBADD)
+xccl_team_lib_ucx_la_CPPFLAGS = $(AM_CPPFLAGS) $(UCX_CPPFLAGS) $(CUDA_CPPFLAGS)
+xccl_team_lib_ucx_la_LDFLAGS = -module -avoid-version $(UCX_LDFLAGS) $(UCX_LIBADD) $(CUDA_LDFLAGS)
 
 pkglib_LTLIBRARIES = $(component_install)
 endif

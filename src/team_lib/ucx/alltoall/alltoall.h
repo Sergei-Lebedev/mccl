@@ -4,6 +4,8 @@
 
 xccl_status_t xccl_ucx_alltoall_pairwise_start(xccl_ucx_collreq_t *req);
 
+xccl_status_t xccl_ucx_alltoall_pairwise_gpu_start(xccl_ucx_collreq_t *req);
+
 xccl_status_t xccl_ucx_alltoall_linear_shift_start(xccl_ucx_collreq_t *req);
 
 #endif

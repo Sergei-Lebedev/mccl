@@ -99,6 +99,12 @@ static ucs_config_field_t xccl_tl_ucx_context_config_table[] = {
      UCS_CONFIG_TYPE_UINT
     },
 
+    {"ALLTOALL_PAIRWISE_GPU", "0",
+     "Use bcopy alltoall alg for gpu buffers",
+     ucs_offsetof(xccl_tl_ucx_context_config_t, alltoall_pairwise_gpu),
+     UCS_CONFIG_TYPE_UINT
+     },
+
     {"PPN", "32",
      "Estimated number of processes per node",
      ucs_offsetof(xccl_tl_ucx_context_config_t, ppn),
@@ -189,14 +195,21 @@ xccl_ucx_alltoall_init(xccl_coll_op_args_t *coll_args,
 {
     xccl_ucx_collreq_t *req;
     xccl_status_t      status = XCCL_OK;
+    xccl_team_lib_ucx_context_t *team_ucx_ctx;
 
+    team_ucx_ctx = ucs_derived_of(team->ctx, xccl_team_lib_ucx_context_t);
     xccl_ucx_coll_base_init(coll_args, team, &req);
     if (!coll_args->alg.set_by_user) {
         //TODO alg selection for alltoall should happen here
         if (coll_args->buffer_info.src_buffer == coll_args->buffer_info.dst_buffer) {
             req->start = xccl_ucx_alltoall_linear_shift_start;
         } else {
-            req->start = xccl_ucx_alltoall_pairwise_start;
+            if ((team_ucx_ctx->alltoall_pairwise_gpu != 0) &&
+                (req->mem_type == UCS_MEMORY_TYPE_CUDA)) {
+                req->start = xccl_ucx_alltoall_pairwise_gpu_start;
+            } else {
+                req->start = xccl_ucx_alltoall_pairwise_start;
+            }
         }
     } else {
         switch (coll_args->alg.id) {
