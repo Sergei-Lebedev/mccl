@@ -99,9 +99,9 @@ static ucs_config_field_t xccl_tl_ucx_context_config_table[] = {
      UCS_CONFIG_TYPE_UINT
     },
 
-    {"ALLTOALL_PAIRWISE_GPU", "0",
+    {"ALLTOALL_BCOPY", "0",
      "Use bcopy alltoall alg for gpu buffers",
-     ucs_offsetof(xccl_tl_ucx_context_config_t, alltoall_pairwise_gpu),
+     ucs_offsetof(xccl_tl_ucx_context_config_t, alltoall_bcopy),
      UCS_CONFIG_TYPE_UINT
      },
 
@@ -119,29 +119,49 @@ xccl_ucx_coll_base_init(xccl_coll_op_args_t *coll_args, xccl_tl_team_t *team,
                         xccl_ucx_collreq_t **request)
 {
     xccl_status_t     status;
-    ucs_memory_type_t mem_type;
+    ucs_memory_type_t src_mem_type, dst_mem_type;
 
     /* TODO: where to handle MPI_INPLACE? */
     if ((ptrdiff_t)coll_args->buffer_info.src_buffer == 0x1) {
         coll_args->buffer_info.src_buffer = coll_args->buffer_info.dst_buffer;
     }
 
-    status = xccl_mem_component_type(coll_args->buffer_info.src_buffer,
-                                     &mem_type);
-    if (status != XCCL_OK) {
-        xccl_ucx_error("Memtype detection error");
-        return XCCL_ERR_INVALID_PARAM;
+    if ((coll_args->coll_type == XCCL_BCAST) ||
+        (coll_args->coll_type == XCCL_ALLREDUCE) ||
+        (coll_args->coll_type == XCCL_REDUCE) ||
+        (coll_args->coll_type == XCCL_ALLTOALL) ||
+        (coll_args->coll_type == XCCL_ALLTOALLV) ||
+        (coll_args->coll_type == XCCL_ALLGATHER)) {
+        status = xccl_mem_component_type(coll_args->buffer_info.src_buffer,
+                                        &src_mem_type);
+        if (status != XCCL_OK) {
+            xccl_ucx_error("memtype detection error");
+            return XCCL_ERR_INVALID_PARAM;
+        }
+        if (coll_args->buffer_info.src_buffer != coll_args->buffer_info.dst_buffer) {
+            status = xccl_mem_component_type(coll_args->buffer_info.dst_buffer,
+                                             &dst_mem_type);
+            if (status != XCCL_OK) {
+                xccl_ucx_error("memtype detection error");
+                return XCCL_ERR_INVALID_PARAM;
+            }
+        } else {
+            dst_mem_type = src_mem_type;
+        }
     }
-    xccl_ucx_trace_req("src_buffer memory type: %s", ucs_memory_type_names[mem_type]);
+    xccl_ucx_trace_req("memory types: src %s, dst %s",
+                       ucs_memory_type_names[src_mem_type],
+                       ucs_memory_type_names[dst_mem_type]);
 
     //todo malloc ->mpool
     xccl_ucx_collreq_t *req = (xccl_ucx_collreq_t *)malloc(sizeof(*req));
     memcpy(&req->args, coll_args, sizeof(*coll_args));
-    req->complete  = XCCL_INPROGRESS;
-    req->team      = team;
-    req->super.lib = &xccl_team_lib_ucx.super;
-    req->tag       = ((xccl_ucx_team_t*)team)->seq_num++;
-    req->mem_type  = mem_type;
+    req->complete     = XCCL_INPROGRESS;
+    req->team         = team;
+    req->super.lib    = &xccl_team_lib_ucx.super;
+    req->tag          = ((xccl_ucx_team_t*)team)->seq_num++;
+    req->src_mem_type = src_mem_type;
+    req->dst_mem_type = dst_mem_type;
 
     (*request)     = req;
     return XCCL_OK;
@@ -199,15 +219,13 @@ xccl_ucx_alltoall_init(xccl_coll_op_args_t *coll_args,
 
     team_ucx_ctx = ucs_derived_of(team->ctx, xccl_team_lib_ucx_context_t);
     xccl_ucx_coll_base_init(coll_args, team, &req);
-    xccl_ucx_info("a2a msg size: %d", coll_args->buffer_info.len);
     if (!coll_args->alg.set_by_user) {
         //TODO alg selection for alltoall should happen here
         if (coll_args->buffer_info.src_buffer == coll_args->buffer_info.dst_buffer) {
             req->start = xccl_ucx_alltoall_linear_shift_start;
         } else {
-            if ((team_ucx_ctx->alltoall_pairwise_gpu != 0) &&
-                (req->mem_type == UCS_MEMORY_TYPE_CUDA)) {
-                req->start = xccl_ucx_alltoall_pairwise_gpu_start;
+            if (team_ucx_ctx->alltoall_bcopy != 0) {
+                req->start = xccl_ucx_alltoall_bcopy_start;
             } else {
                 req->start = xccl_ucx_alltoall_pairwise_start;
             }
@@ -530,8 +548,9 @@ void xccl_ucx_send_completion_cb(void* request, ucs_status_t status)
 }
 
 void xccl_ucx_recv_completion_cb(void* request, ucs_status_t status,
-                                     ucp_tag_recv_info_t *info)
+                                 ucp_tag_recv_info_t *info)
 {
     xccl_ucx_request_t *req = request;
-    req->status = XCCL_UCX_REQUEST_DONE;
+    req->status     = XCCL_UCX_REQUEST_DONE;
+    req->sender_tag = info->sender_tag;
 }

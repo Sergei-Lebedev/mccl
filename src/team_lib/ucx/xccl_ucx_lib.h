@@ -4,7 +4,9 @@
  */
 #ifndef XCCL_TEAM_LIB_UCX_H_
 #define XCCL_TEAM_LIB_UCX_H_
+
 #include "xccl_team_lib.h"
+#include "utils/mem_component.h"
 #include <ucp/api/ucp.h>
 #include <ucs/memory/memory_type.h>
 
@@ -29,7 +31,7 @@ typedef struct xccl_tl_ucx_context_config {
     unsigned                 alltoall_pairwise_chunk;
     int                      alltoall_pairwise_reverse;
     unsigned                 alltoall_pairwise_barrier;
-    unsigned                 alltoall_pairwise_gpu;
+    unsigned                 alltoall_bcopy;
     int                      ppn;
 } xccl_tl_ucx_context_config_t;
 
@@ -58,6 +60,7 @@ typedef enum {
 
 typedef struct xccl_ucx_request_t {
     xccl_ucx_request_status_t status;
+    ucp_tag_t                 sender_tag;
 } xccl_ucx_request_t;
 
 #define MAX_REQS 32
@@ -65,7 +68,8 @@ typedef struct xccl_ucx_request_t {
 typedef struct xccl_ucx_collreq {
     xccl_tl_coll_req_t  super;
     xccl_coll_op_args_t args;
-    ucs_memory_type_t   mem_type;
+    ucs_memory_type_t   src_mem_type;
+    ucs_memory_type_t   dst_mem_type;
     xccl_tl_team_t      *team;
     xccl_status_t       complete;
     uint16_t            tag;
@@ -143,6 +147,17 @@ typedef struct xccl_ucx_collreq {
             int                n_rreqs;
             void               *scratch;
         } alltoall_pairwise;
+        struct {
+            xccl_ucx_request_t **reqs;
+            xccl_mem_component_request_t **copy_reqs;
+            xccl_mem_component_request_t *self_copy;
+            int                n_copy_sreqs;
+            int                n_sreqs;
+            int                n_copy_rreqs;
+            int                n_rreqs;
+            void               *scratch_src;
+            void               *scratch_dst;
+        } alltoall_bcopy;
         struct {
             xccl_ucx_request_t *reqs[2];
             void               *scratch;

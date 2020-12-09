@@ -12,7 +12,7 @@
 
 void xccl_ucx_send_completion_cb(void* request, ucs_status_t status);
 void xccl_ucx_recv_completion_cb(void* request, ucs_status_t status,
-                                     ucp_tag_recv_info_t *info);
+                                 ucp_tag_recv_info_t *info);
 
 #define TEAM_UCX_MAKE_TAG(_tag, _rank, _context_id)                 \
     ((((uint64_t) (_tag))        << TEAM_UCX_TAG_BITS_OFFSET)  |    \
@@ -46,23 +46,28 @@ void xccl_ucx_recv_completion_cb(void* request, ucs_status_t status,
         }                                                               \
     } while(0)
 
-#define TEAM_UCX_CHECK_SEND_REQ() do{           \
-        TEAM_UCX_CHECK_REQ_STATUS();            \
-        *req = ucx_req;                         \
+#define TEAM_UCX_CHECK_SEND_REQ() do{ \
+        TEAM_UCX_CHECK_REQ_STATUS();  \
+        *req = ucx_req;               \
     } while(0)
 
-#define TEAM_UCX_CHECK_RECV_REQ() do {                          \
-        TEAM_UCX_CHECK_REQ_STATUS();                            \
-        /* Is this necessary? Can it call _cb? */               \
-        ucp_tag_recv_info_t info;                               \
-        ucs_status_t status = ucp_request_test(ucx_req, &info); \
-        if (status == UCS_INPROGRESS) {                         \
-            *req = ucx_req;                                     \
-        } else {                                                \
-            xccl_ucx_req_free(ucx_req);                     \
-            *req = NULL;                                        \
-        }                                                       \
+#define TEAM_UCX_CHECK_RECV_REQ() do { \
+        TEAM_UCX_CHECK_REQ_STATUS();   \
+        *req = ucx_req;                \
     } while(0)
+
+// #define TEAM_UCX_CHECK_RECV_REQ() do {                          \
+//         TEAM_UCX_CHECK_REQ_STATUS();                            \
+//         /* Is this necessary? Can it call _cb? */               \
+//         ucp_tag_recv_info_t info;                               \
+//         ucs_status_t status = ucp_request_test(ucx_req, &info); \
+//         if (status == UCS_INPROGRESS) {                         \
+//             *req = ucx_req;                                     \
+//         } else {                                                \
+//             xccl_ucx_req_free(ucx_req);                     \
+//             *req = NULL;                                        \
+//         }                                                       \
+//     } while(0)
 
 
 #define TEAM_UCX_WAIT_REQ(_req) do {                                    \
@@ -141,8 +146,8 @@ static inline void xccl_ucx_progress(xccl_ucx_team_t *team)
 
 static inline xccl_status_t
 xccl_ucx_req_test(xccl_ucx_team_t *team, xccl_ucx_request_t **reqs,
-                          int n_reqs, int *completed_idx,
-                          int poll_count, int n_completions_required)
+                  int n_reqs, int *completed_idx,
+                  int poll_count, int n_completions_required)
 {
     int i;
     int n_polls = 0;

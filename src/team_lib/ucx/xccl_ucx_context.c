@@ -27,12 +27,17 @@ xccl_status_t xccl_ucx_create_context(xccl_team_lib_t *lib,
         (xccl_team_lib_ucx_context_t *)malloc(sizeof(*ctx));
     xccl_tl_ucx_context_config_t *cfg =
         ucs_derived_of(config, xccl_tl_ucx_context_config_t);
-    ucp_params_t        ucp_params;
-    ucp_worker_params_t worker_params;
-    ucp_ep_params_t     ep_params;
-    ucp_config_t        *ucp_config;
-    ucs_status_t        status;
-    ucp_worker_attr_t   worker_attr;
+    ucp_params_t         ucp_params;
+    ucp_worker_params_t  worker_params;
+    ucp_ep_params_t      ep_params;
+    ucp_config_t         *ucp_config;
+    ucs_status_t         status;
+    ucp_worker_attr_t    worker_attr;
+    ucs_memory_type_t    mt;
+    xccl_status_t        xccl_st;
+    ucp_mem_map_params_t mem_map_params;
+    void                 *cache_buf;
+
     XCCL_CONTEXT_SUPER_INIT(ctx->super, lib, params);
 
     status = ucp_config_read(config->env_prefix, NULL, &ucp_config);
@@ -94,17 +99,23 @@ xccl_status_t xccl_ucx_create_context(xccl_team_lib_t *lib,
         ctx->ucp_eps = NULL;
     }
 
-    ucp_mem_map_params_t mem_map_params;
-    void *cache_buf;
-    xccl_mem_component_alloc(&cache_buf,
-                             xccl_lib_global_config.mem_component_cache_size,
-                             UCS_MEMORY_TYPE_CUDA);
-    mem_map_params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
-                                UCP_MEM_MAP_PARAM_FIELD_LENGTH;
-    mem_map_params.address = cache_buf;
-    mem_map_params.length  = xccl_lib_global_config.mem_component_cache_size;
-    ucp_mem_map(ctx->ucp_context, &mem_map_params, &ctx->cache_mem_handle);
-    xccl_mem_component_free(cache_buf, UCS_MEMORY_TYPE_CUDA);
+    for (mt = UCS_MEMORY_TYPE_HOST + 1; mt < UCS_MEMORY_TYPE_LAST; mt++) {
+        xccl_st = xccl_mem_component_alloc(&cache_buf,
+                                           xccl_lib_global_config.mem_component_cache_size,
+                                           mt);
+        if (xccl_st != XCCL_OK) {
+            ctx->cache_mem_handle[mt] = NULL;
+            continue;
+        }
+        mem_map_params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                                    UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+        mem_map_params.address = cache_buf;
+        mem_map_params.length  = xccl_lib_global_config.mem_component_cache_size;
+        status = ucp_mem_map(ctx->ucp_context, &mem_map_params,
+                             &ctx->cache_mem_handle[mt]);
+        assert(UCS_OK == status);
+        xccl_mem_component_free(cache_buf, mt);
+    }
 
     ctx->num_to_probe              = cfg->num_to_probe;
     ctx->barrier_kn_radix          = cfg->barrier_kn_radix;
@@ -115,7 +126,7 @@ xccl_status_t xccl_ucx_create_context(xccl_team_lib_t *lib,
     ctx->alltoall_pairwise_chunk   = cfg->alltoall_pairwise_chunk;
     ctx->alltoall_pairwise_reverse = cfg->alltoall_pairwise_reverse;
     ctx->alltoall_pairwise_barrier = cfg->alltoall_pairwise_barrier;
-    ctx->alltoall_pairwise_gpu     = cfg->alltoall_pairwise_gpu;
+    ctx->alltoall_bcopy            = cfg->alltoall_bcopy;
 
     ctx->next_cid           = 0;
     *context = &ctx->super;
@@ -127,6 +138,7 @@ xccl_status_t xccl_ucx_destroy_context(xccl_tl_context_t *team_context)
     xccl_team_lib_ucx_context_t *ctx = ucs_derived_of(team_context, xccl_team_lib_ucx_context_t);
     xccl_oob_collectives_t      *oob = &team_context->params.oob;
     void *tmp;
+    ucs_memory_type_t mt;
 
     if (ctx->ucp_eps) {
         close_eps(ctx->ucp_eps, oob->size, ctx->ucp_worker);
@@ -135,7 +147,11 @@ xccl_status_t xccl_ucx_destroy_context(xccl_tl_context_t *team_context)
         free(tmp);
         free(ctx->ucp_eps);
     }
-    ucp_mem_unmap(ctx->ucp_context, ctx->cache_mem_handle);
+    for (mt = UCS_MEMORY_TYPE_HOST + 1; mt < UCS_MEMORY_TYPE_LAST; mt++) {
+        if (ctx->cache_mem_handle[mt] != NULL) {
+            ucp_mem_unmap(ctx->ucp_context, ctx->cache_mem_handle[mt]);
+        }
+    }
     ucp_worker_destroy(ctx->ucp_worker);
     ucp_cleanup(ctx->ucp_context);
     free(ctx);

@@ -13,7 +13,7 @@ typedef struct xccl_team_lib_ucx_context {
     int               ucx_inited;
     ucp_context_h     ucp_context;
     ucp_worker_h      ucp_worker;
-    ucp_mem_h         cache_mem_handle;
+    ucp_mem_h         cache_mem_handle[UCS_MEMORY_TYPE_LAST];
     size_t            ucp_addrlen;
     int               next_cid;
     unsigned          num_to_probe;
@@ -25,7 +25,7 @@ typedef struct xccl_team_lib_ucx_context {
     unsigned          alltoall_pairwise_chunk;
     int               alltoall_pairwise_reverse;
     unsigned          alltoall_pairwise_barrier;
-    unsigned          alltoall_pairwise_gpu;
+    unsigned          alltoall_bcopy;
 } xccl_team_lib_ucx_context_t;
 
 xccl_status_t xccl_ucx_create_context(xccl_team_lib_t *lib,

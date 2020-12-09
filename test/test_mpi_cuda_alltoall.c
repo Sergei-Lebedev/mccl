@@ -102,7 +102,7 @@ int main (int argc, char **argv)
     cudaMemcpyAsync(rbuf_cuda, rbuf_host, count_max*size*sizeof(int),
                     cudaMemcpyHostToDevice, stream);
     cudaStreamSynchronize(stream);
-    
+
 /* regular alltoall */
     for (count = count_min; count <= count_max; count *= 2) {
         for (i=0; i<iters; i++) {
